@@ -31,37 +31,56 @@ export default function ScrollyCanvas({
   // Map scroll progress (0-1) to frame index
   const frameIndex = useTransform(scrollYProgress, [0, 1], [0, frameCount - 1]);
 
-  // Preload all images
+  // Preload images progressively
   useEffect(() => {
-    const loadImages = async () => {
-      const loadedImages: HTMLImageElement[] = [];
+    let isMounted = true;
+    const loadedImages: HTMLImageElement[] = new Array(frameCount);
+    let loadedCount = 0;
 
+    // Number of frames required before we hide the loading screen.
+    // 10 frames is usually enough for the user to start scrolling immediately.
+    const INITIAL_FRAMES_TO_LOAD = Math.min(10, frameCount);
+
+    const loadImages = () => {
       for (let i = 0; i < frameCount; i++) {
         const img = new Image();
         const paddedIndex = String(i).padStart(3, '0');
-        img.src = `${framePrefix}${paddedIndex}_delay-0.059s.png`;
+        img.src = `${framePrefix}${paddedIndex}_delay-0.059s.webp`;
 
-        img.onload = () => {
+        const handleLoad = () => {
+          if (!isMounted) return;
+
           loadedImages[i] = img;
-          // Update loading state when all images are loaded
-          if (loadedImages.filter(Boolean).length === frameCount) {
-            setImages(loadedImages);
+          loadedCount++;
+
+          // 1. Hide the loading screen early
+          if (loadedCount === INITIAL_FRAMES_TO_LOAD) {
             setIsLoading(false);
+            setImages([...loadedImages]);
+          }
+          // 2. Batch updates to avoid freezing the UI while remaining images load
+          else if (loadedCount > INITIAL_FRAMES_TO_LOAD && loadedCount % 20 === 0) {
+            setImages([...loadedImages]);
+          }
+          // 3. Final state update when all frames are downloaded
+          else if (loadedCount === frameCount) {
+            setImages([...loadedImages]);
           }
         };
 
+        img.onload = handleLoad;
         img.onerror = () => {
           console.error(`Failed to load image: ${img.src}`);
-          loadedImages[i] = img;
-          if (loadedImages.filter(Boolean).length === frameCount) {
-            setImages(loadedImages);
-            setIsLoading(false);
-          }
+          handleLoad(); // Continue counting even if one fails
         };
       }
     };
 
     loadImages();
+
+    return () => {
+      isMounted = false; // Cleanup to prevent memory leaks if component unmounts
+    };
   }, [frameCount, framePrefix]);
 
   // Render canvas on frame change
